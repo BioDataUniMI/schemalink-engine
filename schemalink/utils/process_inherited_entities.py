@@ -25,6 +25,8 @@ def get_openai_client():
 # Load reference tables
 def load_reference_table(path):
     valid_items = set()
+    if not os.path.exists(path):
+        return valid_items
     with open(path, "r", encoding="utf-8") as file:
         for line in file:
             parts = line.strip().split("\t")
@@ -32,10 +34,48 @@ def load_reference_table(path):
                 valid_items.add(parts[0].strip().lower())
     return valid_items
 
-valid_diseases = load_reference_table("lookup_tables/diseases.txt")
-valid_genes = load_reference_table("lookup_tables/genes.txt")
-valid_proteins = load_reference_table("lookup_tables/protein.txt")
-valid_gos = load_reference_table("lookup_tables/go.txt")
+def _get_lookup_path(filename):
+    candidates = [
+        os.path.join(os.getcwd(), "lookup_tables", filename),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "lookup_tables", filename),
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return None
+
+def _load_lazy(filename):
+    path = _get_lookup_path(filename)
+    return load_reference_table(path) if path else set()
+
+_valid_diseases = None
+_valid_genes = None
+_valid_proteins = None
+_valid_gos = None
+
+def _get_valid_diseases():
+    global _valid_diseases
+    if _valid_diseases is None:
+        _valid_diseases = _load_lazy("diseases.txt")
+    return _valid_diseases
+
+def _get_valid_genes():
+    global _valid_genes
+    if _valid_genes is None:
+        _valid_genes = _load_lazy("genes.txt")
+    return _valid_genes
+
+def _get_valid_proteins():
+    global _valid_proteins
+    if _valid_proteins is None:
+        _valid_proteins = _load_lazy("protein.txt")
+    return _valid_proteins
+
+def _get_valid_gos():
+    global _valid_gos
+    if _valid_gos is None:
+        _valid_gos = _load_lazy("go.txt")
+    return _valid_gos
 
 def process_inherited_entity_classes(
     schema, responses_file, text, response_formats_path,
@@ -324,7 +364,7 @@ def process_inherited_entity_classes(
                 if _inh_dep_annotator:
                     from schemalink.utils.grounding import GroundingManager
                     threshold = ground_entities.get('threshold', 1.0) if isinstance(ground_entities, dict) else 1.0
-                    mode = ground_entities.get('mode', 'exact') if isinstance(ground_entities, dict) else 'exact'
+                    mode = ground_entities.get('mode', 'auto') if isinstance(ground_entities, dict) else 'auto'
                     grounding_manager = GroundingManager(threshold=threshold, mode=mode)
                     _pre_ground_inh = list(extracted_labels)
                     extracted_labels = grounding_manager.ground_entities(extracted_labels, _inh_dep_annotator)
@@ -559,7 +599,7 @@ def process_inherited_entity_classes_without_dep(
                 if _wdep_annotator:
                     from schemalink.utils.grounding import GroundingManager
                     threshold = ground_entities.get('threshold', 1.0) if isinstance(ground_entities, dict) else 1.0
-                    mode = ground_entities.get('mode', 'exact') if isinstance(ground_entities, dict) else 'exact'
+                    mode = ground_entities.get('mode', 'auto') if isinstance(ground_entities, dict) else 'auto'
                     grounding_manager = GroundingManager(threshold=threshold, mode=mode)
                     _pre_ground_wdep = list(extracted_labels)
                     extracted_labels = grounding_manager.ground_entities(extracted_labels, _wdep_annotator, entity_class=child_class)
