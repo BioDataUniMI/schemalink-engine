@@ -14,12 +14,15 @@ class APIKeyManager:
         self.config_file = self.config_dir / "config.json"
         self._ensure_config_dir()
         
-        # Available GPT models
+        # Models that support structured output (required for SchemaLink's JSON response format).
+        # https://platform.openai.com/docs/guides/structured-outputs
         self.available_models = {
-            "gpt-4o-2024-08-06": "GPT-4o (best performance for this model)",
-            "gpt-4.1": "GPT-4.1",
-            "gpt-5.2": "GPT-5.2",
-            "ft:gpt-4o-2024-08-06:university-of-milan:biocreative:DZZKMjIe": "Fine-tuned GPT-4o (BioCreative CDR)",
+            "gpt-4o":               "GPT-4o — best accuracy, recommended",
+            "gpt-4o-mini":          "GPT-4o Mini — faster and cheaper, good for most schemas",
+            "gpt-4o-2024-08-06":    "GPT-4o (2024-08-06) — pinned version",
+            "gpt-4o-mini-2024-07-18": "GPT-4o Mini (2024-07-18) — pinned version",
+            "gpt-4.1":              "GPT-4.1 — latest GPT-4 series",
+            "gpt-4.1-mini":         "GPT-4.1 Mini — efficient GPT-4.1 variant",
         }
     
     def _ensure_config_dir(self):
@@ -88,7 +91,7 @@ class APIKeyManager:
     def get_gpt_model(self) -> str:
         """Get the selected GPT model."""
         config = self._load_config()
-        return config.get('gpt_model', 'gpt-4o-2024-08-06')
+        return config.get('gpt_model', 'gpt-4o')
 
     def get_relationship_model(self) -> str:
         """Get the model used for relationship extraction."""

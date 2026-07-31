@@ -1,389 +1,304 @@
 import argparse
 import os
+import sys
+import time
 from schemalink.pipeline import run_extraction_pipeline
 
+
 def cleanup_files():
-    """Clean up files before running commands"""
-    
-    # 1. Delete every file in generated/graphs
-    graphs_dir = "generated/graphs"
-    if os.path.exists(graphs_dir):
-        for filename in os.listdir(graphs_dir):
-            file_path = os.path.join(graphs_dir, filename)
-            if os.path.isfile(file_path):
-                os.remove(file_path)
-    
-    # 2. Make empty the files in generated/prompts (don't delete them just make them empty)
-    prompts_dir = "generated/prompts"
-    if os.path.exists(prompts_dir):
-        for filename in os.listdir(prompts_dir):
-            file_path = os.path.join(prompts_dir, filename)
-            if os.path.isfile(file_path):
-                with open(file_path, 'w') as f:
-                    f.write('')
-    
-    # 3. Make empty the files in generated/response_formats
-    response_formats_dir = "generated/response_formats"
-    if os.path.exists(response_formats_dir):
-        for filename in os.listdir(response_formats_dir):
-            file_path = os.path.join(response_formats_dir, filename)
-            if os.path.isfile(file_path):
-                with open(file_path, 'w') as f:
-                    f.write('')
-    
-    # 4. Make empty the files in output/
-    output_dir = "output"
-    if os.path.exists(output_dir):
-        for filename in os.listdir(output_dir):
-            file_path = os.path.join(output_dir, filename)
-            if os.path.isfile(file_path):
-                with open(file_path, 'w') as f:
-                    f.write('')
+    """Remove stale generated artefacts from a previous run."""
+    for graphs_dir in ["generated/graphs"]:
+        if os.path.exists(graphs_dir):
+            for fname in os.listdir(graphs_dir):
+                fp = os.path.join(graphs_dir, fname)
+                if os.path.isfile(fp):
+                    os.remove(fp)
+    for empty_dir in ["generated/prompts", "generated/response_formats", "output"]:
+        if os.path.exists(empty_dir):
+            for fname in os.listdir(empty_dir):
+                fp = os.path.join(empty_dir, fname)
+                if os.path.isfile(fp):
+                    open(fp, "w").close()
+
+
+def _check_inputs(schema_path, text_path):
+    """Validate input files. Returns an error string or None."""
+    if not os.path.exists(schema_path):
+        return f"Schema file not found: '{schema_path}'"
+    if os.path.getsize(schema_path) == 0:
+        return f"Schema file is empty: '{schema_path}'"
+    if not os.path.exists(text_path):
+        return f"Text file not found: '{text_path}'"
+    if os.path.getsize(text_path) == 0:
+        return f"Text file is empty: '{text_path}'"
+    return None
+
+
+def _model_list_str():
+    """Return a formatted string of available models for help text."""
+    try:
+        from schemalink.api_key_manager import APIKeyManager
+        models = APIKeyManager().available_models
+        lines = []
+        for name, desc in models.items():
+            lines.append(f"    {name:<36} {desc}")
+        return "\n".join(lines)
+    except Exception:
+        return "    (run `schemalink models` to see the list)"
+
 
 def main():
     parser = argparse.ArgumentParser(
-        description="🧠 Schemalink: A CLI tool for extracting structured entities and relations from biomedical text using a schema.",
-        epilog="""
+        description="SchemaLink — schema-guided information extraction from biomedical text.",
+        epilog=f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📘 Example Usage:
+  Examples
 
-1. Extract all classes from a schema and a text file:
-   $ schemalink extract schema.yaml sample.txt
+  Basic extraction (dependency-aware by default):
+    schemalink extract schema.yaml text.txt
 
-2. Extract only specific classes (e.g. Disease, Drug):
-   $ schemalink extract schema.yaml sample.txt --classes Disease Drug
+  With ontology grounding:
+    schemalink extract schema.yaml text.txt --ground
 
-3. Enable class dependency analysis and extraction:
-   $ schemalink extract schema.yaml sample.txt --add_dependencies
+  Extract only specific classes:
+    schemalink extract schema.yaml text.txt --classes Disease Drug
 
-4. View the generated GPT prompts:
-   $ schemalink extract schema.yaml sample.txt --show_prompts
+  Use a specific GPT model:
+    schemalink extract schema.yaml text.txt --model gpt-4o-mini
 
-5. View the generated Results:
-   $ schemalink extract schema.yaml sample.txt --show_results
+  Flat extraction (no dependency analysis):
+    schemalink extract schema.yaml text.txt --flat
 
-6. Manage OpenAI API key:
-   $ schemalink api-key set sk-your-api-key-here
-   $ schemalink api-key check
-   $ schemalink api-key remove
-
-7. Manage GPT model:
-   $ schemalink models
-   $ schemalink model gpt-4o-2024-08-06
+  Show prompts sent to the LLM (no API call):
+    schemalink extract schema.yaml text.txt --show_prompts
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔧 API Key Management:
+  Grounding
 
-  api-key set <key>     Set your OpenAI API key (starts with 'sk-')
-  api-key check         Check if API key is set and valid
-  api-key remove        Remove stored API key
+  Pass --ground to normalise extracted entities to ontology IDs.
+  The method is determined automatically from the schema's annotators: field:
 
-  Note: You can also set OPENAI_API_KEY environment variable
+    annotators: sqlite:obo:mondo   →  OAK lookup (MONDO ontology)
+    annotators: sqlite:obo:chebi   →  OAK lookup (ChEBI ontology)
+    annotators: hgnc               →  built-in lookup table
+    (no annotator)                 →  entity kept as raw label
+
+  OAK databases are downloaded to ~/.data/oaklib/ on first use.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔧 Model Management:
+  Supported models (structured output required)
 
-  models                List available GPT models
-  model <model_name>    Set the GPT model to use
+{_model_list_str()}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔧 Explanation of Arguments:
+  API key & model management
 
-REQUIRED:
-  schema.yaml          Path to your input LinkML schema file
-  sample.txt           Path to your input biomedical text file
-
-OPTIONAL FLAGS:
-  --classes            List of specific class names you want to extract. If omitted, all schema classes will be used.
-                       $ schemalink extract schema.yaml sample.txt --classes Disease Drug
-
-  --add_dependencies   Enables advanced logic for inherited classes and inter-class relationships. If omitted, the engine would run without considering dependencies.
-                       $ schemalink extract schema.yaml sample.txt --add_dependencies
-
-  --show_prompts       Displays the GPT prompts used for extraction (for debugging or educational use).
-                       $ schemalink extract schema.yaml sample.txt --show_prompts
-  
-  --show_results       Displays Output
-                       $ schemalink extract schema.yaml sample.txt --show_results
-
-
-  --NER                (Reserved) Only run Named Entity Recognition.
-  --ER                 (Reserved) Only run Relationship Extraction.
-
+    schemalink api-key set <key>   Store your OpenAI API key
+    schemalink api-key check       Verify the stored key
+    schemalink api-key remove      Delete the stored key
+    schemalink model <name>        Switch active model
+    schemalink models              List all supported models
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         """,
-        formatter_class=argparse.RawTextHelpFormatter
+        formatter_class=argparse.RawTextHelpFormatter,
     )
 
     subparsers = parser.add_subparsers(dest="command")
 
-    # Define extract_parser here so we can access it later
+    # ── extract ──────────────────────────────────────────────────────────────
     extract_parser = subparsers.add_parser(
         "extract",
-        help="Extract entities and relationships from a text file using the provided schema.",
-        formatter_class=argparse.RawTextHelpFormatter
+        help="Extract entities and relations from text using a schema.",
+        formatter_class=argparse.RawTextHelpFormatter,
     )
+    extract_parser.add_argument("schema_path", help="Path to the LinkML schema YAML file.")
+    extract_parser.add_argument("text_path",   help="Path to the input text file.")
+    extract_parser.add_argument(
+        "--classes", nargs="*", metavar="CLASS",
+        help="Extract only these classes (default: all classes in the schema).",
+    )
+    extract_parser.add_argument(
+        "--ground", action="store_true",
+        help=(
+            "Enable entity grounding. The method is chosen automatically\n"
+            "from each class's annotators: field in the schema."
+        ),
+    )
+    extract_parser.add_argument(
+        "--model", metavar="MODEL",
+        help=(
+            "GPT model to use for this run (overrides the stored default).\n"
+            "Run `schemalink models` to see all supported options."
+        ),
+    )
+    extract_parser.add_argument(
+        "--flat", action="store_true",
+        help="Disable dependency analysis (not recommended — use only for simple schemas).",
+    )
+    extract_parser.add_argument(
+        "--add_guidelines", action="store_true",
+        help="Include schema-level NER/RE guidelines in the LLM prompts.",
+    )
+    extract_parser.add_argument(
+        "--show_prompts", action="store_true",
+        help="Print the LLM prompts for inspection / debugging.",
+    )
+    extract_parser.add_argument(
+        "--show_results", action="store_true",
+        help="Print extraction output to stdout after the run.",
+    )
+    extract_parser.add_argument(
+        "--json_schema", action="store_true",
+        help="Print the parsed JSON schema and exit.",
+    )
+    # Hidden legacy flags kept for backwards compatibility
+    extract_parser.add_argument("--add_dependencies", action="store_true", help=argparse.SUPPRESS)
+    extract_parser.add_argument("--NER", action="store_true", help=argparse.SUPPRESS)
+    extract_parser.add_argument("--ER",  action="store_true", help=argparse.SUPPRESS)
 
-    generate_parser = subparsers.add_parser(
-    "generate_prompts",
-    help="Generate prompt templates (with placeholders) without calling GPT.",
-    formatter_class=argparse.RawTextHelpFormatter
+    # ── generate_prompts ─────────────────────────────────────────────────────
+    gen_parser = subparsers.add_parser(
+        "generate_prompts",
+        help="Generate LLM prompt templates without calling the API.",
+        formatter_class=argparse.RawTextHelpFormatter,
     )
+    gen_parser.add_argument("schema_path", help="Path to the LinkML schema YAML file.")
+    gen_parser.add_argument("text_path",   help="Path to the input text file.")
+    gen_parser.add_argument("--classes", nargs="*", metavar="CLASS")
+    gen_parser.add_argument("--flat", action="store_true")
+    gen_parser.add_argument("--add_guidelines", action="store_true")
+    gen_parser.add_argument("--ground", action="store_true")
+    gen_parser.add_argument("--json_schema", action="store_true")
+    gen_parser.add_argument("--add_dependencies", action="store_true", help=argparse.SUPPRESS)
 
-    # API Key management parser
-    api_parser = subparsers.add_parser(
-        "api-key",
-        help="Manage OpenAI API key for Schemalink engine.",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    
-    api_subparsers = api_parser.add_subparsers(dest="api_action")
-    
-    # Set API key command
-    set_parser = api_subparsers.add_parser(
-        "set",
-        help="Set your OpenAI API key."
-    )
-    set_parser.add_argument(
-        "key",
-        help="Your OpenAI API key (starts with 'sk-')"
-    )
-    
-    # Check API key command
-    check_parser = api_subparsers.add_parser(
-        "check",
-        help="Check if API key is set and valid."
-    )
-    
-    # Remove API key command
-    remove_parser = api_subparsers.add_parser(
-        "remove",
-        help="Remove stored API key."
-    )
+    # ── api-key ───────────────────────────────────────────────────────────────
+    api_parser = subparsers.add_parser("api-key", help="Manage your OpenAI API key.")
+    api_sub = api_parser.add_subparsers(dest="api_action")
+    set_p = api_sub.add_parser("set",    help="Store an API key.")
+    set_p.add_argument("key", help="Your OpenAI API key (starts with 'sk-').")
+    api_sub.add_parser("check",  help="Verify the stored key.")
+    api_sub.add_parser("remove", help="Delete the stored key.")
 
-    # Model management parser
+    # ── model(s) ──────────────────────────────────────────────────────────────
     model_parser = subparsers.add_parser(
         "model",
-        help="Set the GPT model to use for extraction.",
-        formatter_class=argparse.RawTextHelpFormatter
+        help="Set the default GPT model.",
+        formatter_class=argparse.RawTextHelpFormatter,
     )
     model_parser.add_argument(
         "model_name",
-        help="Name of the GPT model to use (e.g., gpt-4o-2024-08-06)"
+        help="Name of the model to use. Run `schemalink models` to see all options.",
     )
+    subparsers.add_parser("models", help="List all supported GPT models.")
 
-    # Models list parser
-    models_parser = subparsers.add_parser(
-        "models",
-        help="List available GPT models.",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-
-    extract_parser.add_argument(
-        "schema_path",
-        help="Path to the input schema YAML file."
-    )
-
-    extract_parser.add_argument(
-        "text_path",
-        help="Path to the input text file to extract entities/relations from."
-    )
-
-    extract_parser.add_argument(
-        "--classes", nargs="*", metavar="CLASS",
-        help="Optional list of classes to extract. If not provided, all classes in the schema will be used."
-    )
-
-    extract_parser.add_argument(
-        "--add_dependencies",
-        action="store_true",
-        help="Enable dependency-based extraction. Resolves class hierarchies and relationships."
-    )
-
-    extract_parser.add_argument(
-        "--add_guidelines",
-        action="store_true",
-        help="Include schema-level guidelines (entity_guidelines and relation_guidelines) in prompts."
-    )
-
-    extract_parser.add_argument(
-        "--show_prompts",
-        action="store_true",
-        help="Print the generated prompts used for GPT entity/relation extraction."
-    )
-
-    extract_parser.add_argument(
-        "--NER",
-        action="store_true",
-        help="(Not yet implemented) Only run Named Entity Recognition."
-    )
-
-    extract_parser.add_argument(
-        "--ER",
-        action="store_true",
-        help="(Not yet implemented) Only run Relation Extraction."
-    )
-    extract_parser.add_argument(
-    "--show_results", action="store_true",
-    help="Print the final extracted entities and relationships from the output file."
-    )
-    
-    extract_parser.add_argument(
-        "--ground",
-        nargs='?',
-        const='exact',
-        default=None,
-        help="Enable entity grounding. Use '--ground' for exact matching, '--ground partial' for word-based partial matching, '--ground m' or '--ground monarch' for Monarch KG grounding, or '--ground THRESHOLD' for fuzzy matching (e.g., '--ground 7' for 70%% similarity). Entities not found will be removed."
-    )
-    
-    generate_parser.add_argument(
-    "schema_path",
-    help="Path to the input schema YAML file."
-    )
-
-    generate_parser.add_argument(
-        "text_path",
-        help="Path to the input text file to extract prompts for."
-    )
-
-    generate_parser.add_argument(
-        "--classes", nargs="*", metavar="CLASS",
-        help="Optional list of classes to generate prompts for. If not provided, all classes will be used."
-    )
-
-    generate_parser.add_argument(
-        "--add_dependencies",
-        action="store_true",
-        help="Enable dependency-based prompt generation logic."
-    )
-
-    generate_parser.add_argument(
-        "--add_guidelines",
-        action="store_true",
-        help="Include schema-level guidelines (entity_guidelines and relation_guidelines) in prompts."
-    )
-    
-    generate_parser.add_argument(
-        "--ground",
-        nargs='?',
-        const='exact',
-        default=None,
-        help="Enable entity grounding using lookup tables. Use '--ground' for exact matching or '--ground THRESHOLD' for fuzzy matching (e.g., '--ground 7' for 70%% similarity). Entities not found will be removed."
-    )
-
-    extract_parser.add_argument(
-    "--json_schema",
-    action="store_true",
-    help="Print the JSON-converted schema and exit."
-    )
-
-    generate_parser.add_argument(
-        "--json_schema",
-        action="store_true",
-        help="Print the JSON-converted schema and exit."
-    )
-
-
-
+    # ─────────────────────────────────────────────────────────────────────────
     args = parser.parse_args()
 
-    # ✅ Show full extract help if no command is provided
     if args.command is None:
         parser.print_help()
-        print("\nTip: Run `schemalink extract --help` for detailed options.\n")
         return
 
-    if args.command == "extract":
+    # ── extract / generate_prompts ────────────────────────────────────────────
+    if args.command in ("extract", "generate_prompts"):
+        err = _check_inputs(args.schema_path, args.text_path)
+        if err:
+            print(f"\n  ✗  {err}\n", file=sys.stderr)
+            sys.exit(1)
+
+        # Override model for this run if --model was passed
+        if args.command == "extract" and getattr(args, "model", None):
+            from schemalink.api_key_manager import APIKeyManager
+            mgr = APIKeyManager()
+            if args.model not in mgr.available_models:
+                print(f"\n  ✗  Unknown model: '{args.model}'", file=sys.stderr)
+                print("     Supported models:", file=sys.stderr)
+                for name, desc in mgr.available_models.items():
+                    print(f"       {name:<36} {desc}", file=sys.stderr)
+                print(file=sys.stderr)
+                sys.exit(1)
+            mgr.set_gpt_model(args.model)
+
+        with_dependencies = not args.flat
+        ground_config = {"mode": "auto"} if args.ground else None
+        generate_only = (args.command == "generate_prompts")
+
         cleanup_files()
-        
-        # Parse ground argument
-        ground_config = None
-        if args.ground:
-            if args.ground == 'exact':
-                ground_config = {'threshold': 1.0, 'mode': 'exact'}
-            elif args.ground == 'partial':
-                ground_config = {'threshold': 1.0, 'mode': 'partial'}
-            elif args.ground.lower() in ['m', 'monarch']:
-                ground_config = {'threshold': 1.0, 'mode': 'monarch'}
-            else:
-                try:
-                    # Convert threshold (e.g., 7 -> 0.7 for 70%)
-                    threshold_value = float(args.ground)
-                    if threshold_value < 0 or threshold_value > 10:
-                        print("⚠️ Warning: Threshold must be between 0 and 10. Using exact matching.")
-                        ground_config = {'threshold': 1.0, 'mode': 'exact'}
-                    else:
-                        ground_config = {'threshold': threshold_value / 10.0, 'mode': 'fuzzy'}
-                except ValueError:
-                    print(f"⚠️ Warning: Invalid threshold '{args.ground}'. Using exact matching.")
-                    ground_config = {'threshold': 1.0, 'mode': 'exact'}
-        
-        run_extraction_pipeline(
-            schema_path=args.schema_path,
-            text_path=args.text_path,
-            with_dependencies=args.add_dependencies,
-            add_guidelines=args.add_guidelines,
-            selected_classes=args.classes,
-            show_prompts=args.show_prompts,
-            show_results=args.show_results,
-            generate_prompts_only=False,
-            json_schema=args.json_schema,
-            ground_entities=ground_config
-        )
-    elif args.command == "generate_prompts":
-        cleanup_files()
-        
-        # Parse ground argument
-        ground_threshold = None
-        if args.ground:
-            if args.ground == 'exact':
-                ground_threshold = 1.0  # Exact matching
-            else:
-                try:
-                    # Convert threshold (e.g., 7 -> 0.7 for 70%)
-                    threshold_value = float(args.ground)
-                    if threshold_value < 0 or threshold_value > 10:
-                        print("⚠️ Warning: Threshold must be between 0 and 10. Using exact matching.")
-                        ground_threshold = 1.0
-                    else:
-                        ground_threshold = threshold_value / 10.0
-                except ValueError:
-                    print(f"⚠️ Warning: Invalid threshold '{args.ground}'. Using exact matching.")
-                    ground_threshold = 1.0
-        
-        run_extraction_pipeline(
-        schema_path=args.schema_path,
-        text_path=args.text_path,
-        with_dependencies=args.add_dependencies,
-        add_guidelines=args.add_guidelines,
-        selected_classes=args.classes,
-        show_prompts=True,
-        show_results=False,
-        generate_prompts_only=True,
-        json_schema=args.json_schema,
-        ground_entities=ground_threshold
-      )
+
+        if args.command == "extract":
+            from schemalink.api_key_manager import APIKeyManager
+            current_model = APIKeyManager().get_gpt_model()
+            print()
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("  SchemaLink Extraction")
+            print(f"  Schema : {args.schema_path}")
+            print(f"  Text   : {args.text_path}")
+            print(f"  Model  : {current_model}")
+            print(f"  Mode   : {'dependency-aware' if with_dependencies else 'flat'}")
+            if ground_config:
+                print("  Ground : enabled (schema-driven)")
+            if args.classes:
+                print(f"  Classes: {', '.join(args.classes)}")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print()
+
+        start = time.time()
+        try:
+            run_extraction_pipeline(
+                schema_path=args.schema_path,
+                text_path=args.text_path,
+                with_dependencies=with_dependencies,
+                add_guidelines=args.add_guidelines,
+                selected_classes=args.classes,
+                show_prompts=args.show_prompts,
+                show_results=getattr(args, "show_results", False),
+                generate_prompts_only=generate_only,
+                json_schema=args.json_schema,
+                ground_entities=ground_config,
+            )
+            elapsed = time.time() - start
+            if args.command == "extract":
+                print()
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print(f"  ✓  Extraction completed in {elapsed:.1f}s")
+                print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print()
+        except KeyboardInterrupt:
+            print("\n\n  ✗  Interrupted.\n", file=sys.stderr)
+            sys.exit(130)
+        except Exception as exc:
+            elapsed = time.time() - start
+            print(file=sys.stderr)
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", file=sys.stderr)
+            print(f"  ✗  Extraction failed after {elapsed:.1f}s", file=sys.stderr)
+            print(f"  Error: {exc}", file=sys.stderr)
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", file=sys.stderr)
+            print(file=sys.stderr)
+            sys.exit(1)
+
+    # ── api-key ───────────────────────────────────────────────────────────────
     elif args.command == "api-key":
         from schemalink.api_key_manager import APIKeyManager
-        api_manager = APIKeyManager()
-        
+        mgr = APIKeyManager()
         if args.api_action == "set":
-            api_manager.set_api_key(args.key)
+            mgr.set_api_key(args.key)
         elif args.api_action == "check":
-            api_manager.check_api_key()
+            mgr.check_api_key()
         elif args.api_action == "remove":
-            api_manager.remove_api_key()
+            mgr.remove_api_key()
         else:
             api_parser.print_help()
+
+    # ── model / models ────────────────────────────────────────────────────────
     elif args.command == "model":
         from schemalink.api_key_manager import APIKeyManager
-        api_manager = APIKeyManager()
-        api_manager.set_gpt_model(args.model_name)
+        APIKeyManager().set_gpt_model(args.model_name)
     elif args.command == "models":
         from schemalink.api_key_manager import APIKeyManager
-        api_manager = APIKeyManager()
-        api_manager.list_available_models()
+        APIKeyManager().list_available_models()
+
     else:
         parser.print_help()
+
 
 if __name__ == "__main__":
     main()
