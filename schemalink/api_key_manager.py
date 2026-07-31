@@ -14,15 +14,21 @@ class APIKeyManager:
         self.config_file = self.config_dir / "config.json"
         self._ensure_config_dir()
         
-        # Models that support structured output (required for SchemaLink's JSON response format).
+        # All models that support Structured Outputs (strict JSON schema enforcement).
         # https://platform.openai.com/docs/guides/structured-outputs
         self.available_models = {
-            "gpt-4o":               "GPT-4o — best accuracy, recommended",
-            "gpt-4o-mini":          "GPT-4o Mini — faster and cheaper, good for most schemas",
-            "gpt-4o-2024-08-06":    "GPT-4o (2024-08-06) — pinned version",
-            "gpt-4o-mini-2024-07-18": "GPT-4o Mini (2024-07-18) — pinned version",
-            "gpt-4.1":              "GPT-4.1 — latest GPT-4 series",
-            "gpt-4.1-mini":         "GPT-4.1 Mini — efficient GPT-4.1 variant",
+            # GPT-5 series (recommended for new projects)
+            "gpt-5.6":          "GPT-5.6 — flagship, OpenAI-recommended for new projects",
+            "gpt-5.5":          "GPT-5.5 — high performance",
+            "gpt-5.4":          "GPT-5.4 — strong balance of speed and accuracy",
+            "gpt-5.4-mini":     "GPT-5.4 Mini — efficient GPT-5 variant",
+            "gpt-5.4-nano":     "GPT-5.4 Nano — fastest and cheapest GPT-5",
+            # GPT-4.1 series
+            "gpt-4.1":          "GPT-4.1 — latest GPT-4 series",
+            "gpt-4.1-mini":     "GPT-4.1 Mini — efficient GPT-4.1 variant",
+            # GPT-4o series (stable, well-tested with SchemaLink)
+            "gpt-4o":           "GPT-4o — well-tested with SchemaLink",
+            "gpt-4o-mini":      "GPT-4o Mini — faster and cheaper",
         }
     
     def _ensure_config_dir(self):
@@ -91,7 +97,7 @@ class APIKeyManager:
     def get_gpt_model(self) -> str:
         """Get the selected GPT model."""
         config = self._load_config()
-        return config.get('gpt_model', 'gpt-4o')
+        return config.get('gpt_model', 'gpt-5.6')
 
     def get_relationship_model(self) -> str:
         """Get the model used for relationship extraction."""
