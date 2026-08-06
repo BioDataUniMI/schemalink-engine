@@ -69,8 +69,11 @@ def main():
   Flat extraction (no dependency analysis):
     schemalink extract schema.yaml text.txt --flat
 
-  Show prompts sent to the LLM (no API call):
+  Show prompts sent to the LLM (still makes API calls):
     schemalink extract schema.yaml text.txt --show_prompts
+
+  Generate prompts only, without calling the API:
+    schemalink generate_prompts schema.yaml text.txt
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Grounding
@@ -141,7 +144,7 @@ def main():
     )
     extract_parser.add_argument(
         "--show_prompts", action="store_true",
-        help="Print the LLM prompts for inspection / debugging.",
+        help="Print the LLM prompts alongside the extraction output (API is still called).",
     )
     extract_parser.add_argument(
         "--show_results", action="store_true",
