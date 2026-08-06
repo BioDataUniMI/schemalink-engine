@@ -26,7 +26,38 @@ import json
 import os
 import time as _time
 
-def run_extraction_pipeline(schema_path, text_path, with_dependencies=False, add_guidelines=False, selected_classes=None,show_prompts=False,show_results=False,generate_prompts_only=False,json_schema=False, ground_entities=False):
+def _ensure_working_dirs():
+    """Create the required runtime directories if they don't exist.
+    These are created in the current working directory so the package
+    works correctly regardless of where the user runs it from.
+    """
+    dirs = [
+        "generated/graphs",
+        "generated/prompts",
+        "generated/response_formats",
+        "output",
+    ]
+    for d in dirs:
+        os.makedirs(d, exist_ok=True)
+    # Ensure the expected empty JSON files exist so downstream readers don't crash
+    empty_files = [
+        "generated/prompts/final_namedentity_prompts.json",
+        "generated/prompts/inherited_class_prompts.json",
+        "generated/prompts/relationship_classes_prompts.json",
+        "generated/response_formats/inherited_response_formats.json",
+        "generated/response_formats/named_entity_response_formats.json",
+        "generated/response_formats/relationship_response_formats.json",
+        "output/generated_responses.json",
+        "output/generated_responses_without_dependencies.json",
+    ]
+    for fp in empty_files:
+        if not os.path.exists(fp):
+            with open(fp, "w") as f:
+                f.write("")
+
+
+def run_extraction_pipeline(schema_path, text_path, with_dependencies=True, add_guidelines=False, selected_classes=None,show_prompts=False,show_results=False,generate_prompts_only=False,json_schema=False, ground_entities=None):
+    _ensure_working_dirs()
     # Emit META trace so the frontend knows model, text length, and pipeline start time
     try:
         _meta_text_len = 0
