@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import os
 import sys
 import sqlite3
 import logging
 from difflib import SequenceMatcher
+from typing import Optional
 
 
 # Suppress OAK's noisy warnings about invalid CURIEs
@@ -50,7 +53,7 @@ def _get_sqlite_conn(ontology_name: str):
     _SQLITE_DB_CACHE[ontology_name] = None
     return None
 
-def _ground_with_sqlite(entity_name: str, ontology_name: str) -> str | None:
+def _ground_with_sqlite(entity_name: str, ontology_name: str) -> Optional[str]:
     """
     Query an OAK SQLite .db file for an exact whole-label match.
     Returns the best matching subject ID (CURIE) or None.
@@ -552,24 +555,24 @@ class GroundingManager:
         
         for annotator in annotator_values:
             if self._is_oak_annotator(annotator):
-                # If mode is 'monarch', use OAK
-                if self.mode == 'monarch':
+                # 'auto' and 'monarch' both use OAK for sqlite:obo:* annotators.
+                # The method is determined by the annotator format in the schema,
+                # not by a user-supplied mode flag.
+                if self.mode in ('monarch', 'auto'):
                     oak_annotators.append(annotator)
                 else:
-                    # For exact/partial/fuzzy modes, convert sqlite:obo:pr -> pr (lookup table)
+                    # For explicit exact/partial/fuzzy modes, use lookup tables
                     if annotator.startswith("sqlite:obo:"):
                         lookup_table_name = annotator.replace("sqlite:obo:", "")
                         lookup_annotators.append(lookup_table_name)
                     else:
-                        # Other OAK annotators (e.g., translator:) - try as lookup table name
                         lookup_annotators.append(annotator)
             else:
                 lookup_annotators.append(annotator)
         
         # Track which OAK annotators failed to initialize (for fallback)
-        # Only check OAK adapters if mode is 'monarch'
         oak_failed_annotators = []
-        if self.mode == 'monarch':
+        if self.mode in ('monarch', 'auto'):
             for annotator in oak_annotators:
                 # Try to get adapter using our method (which checks for existing DBs)
                 adapter = self._get_oak_adapter(annotator)
@@ -608,7 +611,7 @@ class GroundingManager:
 
             # If OAK library is unavailable but mode is 'monarch', try direct SQLite queries
             # against the OAK-format .db files — same data, no OAK library needed.
-            if not entity_id and self.mode == 'monarch' and not OAK_AVAILABLE:
+            if not entity_id and self.mode in ('monarch', 'auto') and not OAK_AVAILABLE:
                 for annotator in oak_annotators:
                     if not annotator.startswith("sqlite:obo:"):
                         continue
@@ -669,7 +672,7 @@ class GroundingManager:
         # Print summary
         # Check if any OAK adapters actually worked
         oak_worked = any(self.oak_adapters.get(a) is not None for a in oak_annotators if a not in oak_failed_annotators)
-        sqlite_direct_used = (not OAK_AVAILABLE and self.mode == 'monarch'
+        sqlite_direct_used = (not OAK_AVAILABLE and self.mode in ('monarch', 'auto')
                               and any(a.startswith("sqlite:obo:") for a in oak_annotators))
         if oak_annotators and oak_worked and not oak_failed_annotators:
             method_str = "OAK"
