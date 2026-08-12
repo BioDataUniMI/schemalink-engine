@@ -13,7 +13,7 @@ The SchemaLink IE engine implements a **dependency-aware multi-step pipeline** t
 1. Parses the schema and builds a class-dependency DAG
 2. Runs topologically-sorted GPT calls — each step conditioned on the results of its dependencies
 3. Applies algorithmic post-processing rules (deduplication, cardinality, inheritance resolution)
-4. Grounds extracted entities to biomedical ontologies via [OAK](https://incatools.github.io/ontology-access-kit/) (exact, partial, fuzzy, or Monarch KG matching)
+4. Optionally grounds extracted entities to biomedical ontologies via [OAK](https://incatools.github.io/ontology-access-kit/)
 
 ```
    Schema     ──┐
@@ -47,20 +47,17 @@ schemalink api-key set sk-your-key-here
 
 ## Quick Start
 
-Given a RDF-like schema (see SchemaLink.biodata.di.unimi.it) file (`schema.yaml`) and a text file (`text.txt`):
+Given a schema file (`schema.yaml`, built with [SchemaLink](https://SchemaLink.biodata.di.unimi.it)) and a text file (`text.txt`):
 
 ```bash
-# Basic extraction
+# Standard extraction — dependency-aware by default
 schemalink extract schema.yaml text.txt
 
-# Dependency-aware multi-step extraction (recommended)
-schemalink extract schema.yaml text.txt --add_dependencies
+# With ontology grounding (recommended when the schema defines annotators)
+schemalink extract schema.yaml text.txt --ground
 
-# With ontology grounding (exact match)
-schemalink extract schema.yaml text.txt --add_dependencies --ground exact
-
-# Fuzzy grounding (70% similarity threshold)
-schemalink extract schema.yaml text.txt --add_dependencies --ground 7
+# Flat extraction — all classes extracted independently, ignoring dependencies
+schemalink extract schema.yaml text.txt --flat
 ```
 
 ### Example Schema (Drug–Disease)
@@ -131,28 +128,43 @@ classes:
 ```python
 from schemalink_engine.pipeline import run_extraction_pipeline
 
+# Dependency-aware extraction (default)
 run_extraction_pipeline(
     schema_path="schema.yaml",
     text_path="text.txt",
-    with_dependencies=True,
-    ground_entities={"mode": "exact", "threshold": 1.0},
+    with_dependencies=True,   # True by default
+    show_results=True,
+)
+
+# With ontology grounding
+run_extraction_pipeline(
+    schema_path="schema.yaml",
+    text_path="text.txt",
+    ground_entities={"mode": "auto"},
     show_results=True,
 )
 ```
 
 ---
 
-## Grounding Modes
+## Grounding
 
-| Mode | Flag | Description |
-|---|---|---|
-| None | *(default)* | No grounding — returns raw LLM labels |
-| Exact | `--ground exact` | OAK exact label match against ontology SQLite DB |
-| Partial | `--ground partial` | Word-overlap matching |
-| Fuzzy | `--ground 7` | Fuzzy string similarity (0–10 scale) |
-| Monarch | `--ground monarch` | Monarch Initiative knowledge graph lookup |
+By default, extraction returns raw LLM labels with no ontology IDs. Pass `--ground` to enable grounding:
 
-OAK databases are downloaded automatically on first use from the [bbop-sqlite](https://s3.amazonaws.com/bbop-sqlite/) S3 bucket.
+```bash
+schemalink extract schema.yaml text.txt --ground
+```
+
+The grounding method is **chosen automatically** based on the `annotators:` field defined in the schema class:
+
+| Annotator in schema | Grounding method |
+|---|---|
+| `sqlite:obo:mondo`, `sqlite:obo:chebi`, etc. | OAK exact match against a local ontology SQLite database |
+| `cellosaurus`, `ncbigene`, `mesh_d`, etc. | Lookup against a local reference table |
+
+**OAK databases** are downloaded automatically on first use from the [bbop-sqlite](https://s3.amazonaws.com/bbop-sqlite/) S3 bucket and cached in `~/.data/oaklib/`. If the OAK library is unavailable, the engine falls back to querying the `.db` files directly via SQLite. If no local database or lookup table is found, the entity is left ungrounded.
+
+Classes with no `annotators:` field are always left ungrounded regardless of the `--ground` flag.
 
 ---
 
@@ -184,18 +196,22 @@ SchemaLink supports any ontology available as an OAK SQLite database, including:
 schemalink extract <schema> <text> [options]
 
 Options:
-  --add_dependencies    Dependency-aware multi-step extraction
+  --ground              Enable ontology grounding (method chosen automatically
+                        from the annotators defined in the schema)
+  --flat                Disable dependency-aware extraction — extract all
+                        classes independently (default: dependency-aware ON)
   --add_guidelines      Include schema-level guidelines in prompts
   --classes A B C       Extract only specific classes
-  --ground [mode]       Entity grounding (exact / partial / monarch / 0-10)
-  --show_prompts        Print generated GPT prompts
-  --show_results        Print extraction output
+  --model <name>        Override the GPT model for this run
+  --show_prompts        Print the prompts sent to the LLM (API call still made)
+  --show_results        Print the extraction output to stdout
   --json_schema         Print the parsed JSON schema and exit
 
-schemalink api-key set <key>   Set OpenAI API key
-schemalink api-key check       Verify API key
-schemalink model <name>        Set GPT model (e.g. gpt-4o, gpt-4o-mini)
-schemalink models              List available models
+schemalink api-key set <key>   Save your OpenAI API key
+schemalink api-key check       Check whether an API key is configured
+schemalink api-key remove      Remove the saved API key
+schemalink model set <name>    Set the default GPT model
+schemalink models              List all supported GPT models
 ```
 
 ---
