@@ -43,6 +43,11 @@ Set your OpenAI API key:
 schemalink api-key set sk-your-key-here
 ```
 
+> **Note:** If the `OPENAI_API_KEY` environment variable is set in your shell, it will always
+> take priority over the key saved with `api-key set`. Run `schemalink api-key check` to see
+> which source is being used. To use the key manager, unset the environment variable first:
+> `unset OPENAI_API_KEY`
+
 ---
 
 ## Quick Start

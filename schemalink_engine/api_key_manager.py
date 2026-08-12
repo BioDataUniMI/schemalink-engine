@@ -45,7 +45,17 @@ class APIKeyManager:
         config['openai_api_key'] = api_key
         self._save_config(config)
         
-        print("✅ API key set successfully!")
+        print(f"✅ API key saved to {self.config_file}")
+
+        # Warn if an environment variable is also set — it will take priority
+        env_key = os.getenv('OPENAI_API_KEY')
+        if env_key:
+            print()
+            print("⚠️  Warning: OPENAI_API_KEY environment variable is also set.")
+            print("   Environment variables take priority over the saved key,")
+            print("   so the key you just saved will NOT be used until you unset it:")
+            print("   Run:  unset OPENAI_API_KEY")
+
         return True
     
     def get_api_key(self) -> str:
@@ -59,10 +69,20 @@ class APIKeyManager:
         config = self._load_config()
         return config.get('openai_api_key', '')
     
+    def get_api_key_source(self) -> str:
+        """Return where the active API key comes from: 'env', 'config', or 'none'."""
+        if os.getenv('OPENAI_API_KEY'):
+            return 'env'
+        config = self._load_config()
+        if config.get('openai_api_key'):
+            return 'config'
+        return 'none'
+
     def check_api_key(self) -> bool:
         """Check if API key is set and valid."""
         api_key = self.get_api_key()
-        
+        source = self.get_api_key_source()
+
         if not api_key:
             print("❌ No API key found!")
             print("💡 Set your API key using: schemalink api-key set <your-key>")
@@ -73,9 +93,15 @@ class APIKeyManager:
             print("❌ Invalid API key format!")
             return False
         
-        print("✅ API key is set and appears valid")
-        
-        # Also display current model
+        if source == 'env':
+            print("✅ API key is set and appears valid")
+            print("   Source: OPENAI_API_KEY environment variable")
+            print("   ⚠️  This takes priority over any key saved with 'api-key set'.")
+            print("      To use the key manager instead, run:  unset OPENAI_API_KEY")
+        else:
+            print("✅ API key is set and appears valid")
+            print(f"   Source: {self.config_file}")
+
         current_model = self.get_gpt_model()
         model_description = self.available_models.get(current_model, "Unknown model")
         print(f"🤖 Current GPT model: {current_model} ({model_description})")
