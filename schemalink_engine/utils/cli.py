@@ -2,7 +2,7 @@ import argparse
 import os
 import sys
 import time
-from schemalink.pipeline import run_extraction_pipeline
+from schemalink_engine.pipeline import run_extraction_pipeline
 
 
 def cleanup_files():
@@ -22,7 +22,7 @@ def cleanup_files():
 
 
 def _check_inputs(schema_path, text_path):
-    """Validate input files. Returns an error string or None."""
+    """Validate that both input files exist and are non-empty. Returns error string or None."""
     if not os.path.exists(schema_path):
         return f"Schema file not found: '{schema_path}'"
     if os.path.getsize(schema_path) == 0:
@@ -34,25 +34,12 @@ def _check_inputs(schema_path, text_path):
     return None
 
 
-def _model_list_str():
-    """Return a formatted string of available models for help text."""
-    try:
-        from schemalink.api_key_manager import APIKeyManager
-        models = APIKeyManager().available_models
-        lines = []
-        for name, desc in models.items():
-            lines.append(f"    {name:<36} {desc}")
-        return "\n".join(lines)
-    except Exception:
-        return "    (run `schemalink models` to see the list)"
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="SchemaLink — schema-guided information extraction from biomedical text.",
-        epilog=f"""
+        epilog="""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Examples
+Examples
 
   Basic extraction (dependency-aware by default):
     schemalink extract schema.yaml text.txt
@@ -63,44 +50,34 @@ def main():
   Extract only specific classes:
     schemalink extract schema.yaml text.txt --classes Disease Drug
 
-  Use a specific GPT model:
-    schemalink extract schema.yaml text.txt --model gpt-4o-mini
-
   Flat extraction (no dependency analysis):
     schemalink extract schema.yaml text.txt --flat
 
-  Show prompts sent to the LLM (still makes API calls):
+  Debug: show prompts sent to the LLM:
     schemalink extract schema.yaml text.txt --show_prompts
 
-  Generate prompts only, without calling the API:
-    schemalink generate_prompts schema.yaml text.txt
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Grounding
+Grounding
 
-  Pass --ground to normalise extracted entities to ontology IDs.
-  The method is determined automatically from the schema's annotators: field:
+  Pass --ground to enable entity normalisation.
+  SchemaLink reads each class's `annotators:` field from the schema and
+  automatically picks the right method:
 
-    annotators: sqlite:obo:mondo   →  OAK lookup (MONDO ontology)
-    annotators: sqlite:obo:chebi   →  OAK lookup (ChEBI ontology)
+    annotators: sqlite:obo:mondo   →  OAK lookup against the MONDO SQLite DB
+    annotators: sqlite:obo:chebi   →  OAK lookup against the ChEBI SQLite DB
     annotators: hgnc               →  built-in lookup table
-    (no annotator)                 →  entity kept as raw label
+    (no annotator)                 →  entity kept as raw label, no ID assigned
 
-  OAK databases are downloaded to ~/.data/oaklib/ on first use.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Supported models (structured output required)
-
-{_model_list_str()}
+  OAK databases are downloaded automatically to ~/.data/oaklib/ on first use.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  API key & model management
+API key & model
 
-    schemalink api-key set <key>   Store your OpenAI API key
-    schemalink api-key check       Verify the stored key
-    schemalink api-key remove      Delete the stored key
-    schemalink model <name>        Switch active model
-    schemalink models              List all supported models
+  schemalink api-key set <key>   Set your OpenAI API key
+  schemalink api-key check       Verify the stored key
+  schemalink api-key remove      Remove the stored key
+  schemalink model <name>        Switch GPT model (e.g. gpt-4o, gpt-4o-mini)
+  schemalink models              List available models
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         """,
         formatter_class=argparse.RawTextHelpFormatter,
@@ -123,20 +100,18 @@ def main():
     extract_parser.add_argument(
         "--ground", action="store_true",
         help=(
-            "Enable entity grounding. The method is chosen automatically\n"
-            "from each class's annotators: field in the schema."
-        ),
-    )
-    extract_parser.add_argument(
-        "--model", metavar="MODEL",
-        help=(
-            "GPT model to use for this run (overrides the stored default).\n"
-            "Run `schemalink models` to see all supported options."
+            "Enable entity grounding. The method is determined automatically from the\n"
+            "schema's `annotators:` field (OAK for sqlite:obo:*, built-in lookup tables\n"
+            "for everything else). OAK databases are downloaded on first use."
         ),
     )
     extract_parser.add_argument(
         "--flat", action="store_true",
-        help="Disable dependency analysis (not recommended — use only for simple schemas).",
+        help=(
+            "Disable dependency analysis and run a flat extraction instead.\n"
+            "By default SchemaLink uses the schema's class hierarchy to run\n"
+            "extraction in topological order (recommended)."
+        ),
     )
     extract_parser.add_argument(
         "--add_guidelines", action="store_true",
@@ -144,7 +119,7 @@ def main():
     )
     extract_parser.add_argument(
         "--show_prompts", action="store_true",
-        help="Print the LLM prompts alongside the extraction output (API is still called).",
+        help="Print the LLM prompts for inspection/debugging.",
     )
     extract_parser.add_argument(
         "--show_results", action="store_true",
@@ -183,16 +158,9 @@ def main():
     api_sub.add_parser("remove", help="Delete the stored key.")
 
     # ── model(s) ──────────────────────────────────────────────────────────────
-    model_parser = subparsers.add_parser(
-        "model",
-        help="Set the default GPT model.",
-        formatter_class=argparse.RawTextHelpFormatter,
-    )
-    model_parser.add_argument(
-        "model_name",
-        help="Name of the model to use. Run `schemalink models` to see all options.",
-    )
-    subparsers.add_parser("models", help="List all supported GPT models.")
+    model_parser = subparsers.add_parser("model",  help="Set the GPT model to use.")
+    model_parser.add_argument("model_name", help="e.g. gpt-4o, gpt-4o-mini")
+    subparsers.add_parser("models", help="List available GPT models.")
 
     # ─────────────────────────────────────────────────────────────────────────
     args = parser.parse_args()
@@ -208,37 +176,29 @@ def main():
             print(f"\n  ✗  {err}\n", file=sys.stderr)
             sys.exit(1)
 
-        # Override model for this run if --model was passed
-        if args.command == "extract" and getattr(args, "model", None):
-            from schemalink.api_key_manager import APIKeyManager
-            mgr = APIKeyManager()
-            if args.model not in mgr.available_models:
-                print(f"\n  ✗  Unknown model: '{args.model}'", file=sys.stderr)
-                print("     Supported models:", file=sys.stderr)
-                for name, desc in mgr.available_models.items():
-                    print(f"       {name:<36} {desc}", file=sys.stderr)
-                print(file=sys.stderr)
-                sys.exit(1)
-            mgr.set_gpt_model(args.model)
-
+        # Dependency mode: on by default, off only when --flat is given.
+        # Legacy --add_dependencies flag is still honoured silently.
         with_dependencies = not args.flat
-        ground_config = {"mode": "auto"} if args.ground else None
-        generate_only = (args.command == "generate_prompts")
+
+        # Grounding config: simple flag → 'auto' mode (schema-driven)
+        ground_config = None
+        if args.ground:
+            ground_config = {"mode": "auto"}
 
         cleanup_files()
 
+        generate_only = (args.command == "generate_prompts")
+
         if args.command == "extract":
-            from schemalink.api_key_manager import APIKeyManager
-            current_model = APIKeyManager().get_gpt_model()
             print()
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print("  SchemaLink Extraction")
             print(f"  Schema : {args.schema_path}")
             print(f"  Text   : {args.text_path}")
-            print(f"  Model  : {current_model}")
-            print(f"  Mode   : {'dependency-aware' if with_dependencies else 'flat'}")
+            mode_label = "dependency-aware" if with_dependencies else "flat"
+            print(f"  Mode   : {mode_label}")
             if ground_config:
-                print("  Ground : enabled (schema-driven)")
+                print("  Ground : enabled (schema-driven, OAK + lookup tables)")
             if args.classes:
                 print(f"  Classes: {', '.join(args.classes)}")
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -253,7 +213,7 @@ def main():
                 add_guidelines=args.add_guidelines,
                 selected_classes=args.classes,
                 show_prompts=args.show_prompts,
-                show_results=getattr(args, "show_results", False),
+                show_results=args.show_results,
                 generate_prompts_only=generate_only,
                 json_schema=args.json_schema,
                 ground_entities=ground_config,
@@ -266,7 +226,7 @@ def main():
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 print()
         except KeyboardInterrupt:
-            print("\n\n  ✗  Interrupted.\n", file=sys.stderr)
+            print("\n\n  ✗  Interrupted by user.\n", file=sys.stderr)
             sys.exit(130)
         except Exception as exc:
             elapsed = time.time() - start
@@ -280,7 +240,7 @@ def main():
 
     # ── api-key ───────────────────────────────────────────────────────────────
     elif args.command == "api-key":
-        from schemalink.api_key_manager import APIKeyManager
+        from schemalink_engine.api_key_manager import APIKeyManager
         mgr = APIKeyManager()
         if args.api_action == "set":
             mgr.set_api_key(args.key)
@@ -293,10 +253,10 @@ def main():
 
     # ── model / models ────────────────────────────────────────────────────────
     elif args.command == "model":
-        from schemalink.api_key_manager import APIKeyManager
+        from schemalink_engine.api_key_manager import APIKeyManager
         APIKeyManager().set_gpt_model(args.model_name)
     elif args.command == "models":
-        from schemalink.api_key_manager import APIKeyManager
+        from schemalink_engine.api_key_manager import APIKeyManager
         APIKeyManager().list_available_models()
 
     else:

@@ -16,8 +16,8 @@ import threading
 import queue
 import time
 from werkzeug.utils import secure_filename
-from schemalink.pipeline import run_extraction_pipeline
-from schemalink.api_key_manager import APIKeyManager
+from schemalink_engine.pipeline import run_extraction_pipeline
+from schemalink_engine.api_key_manager import APIKeyManager
 
 # Configure matplotlib to use non-GUI backend to avoid threading issues
 import matplotlib

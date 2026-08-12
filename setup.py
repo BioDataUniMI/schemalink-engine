@@ -14,7 +14,7 @@ else:
     long_description = "A CLI tool for extracting structured entities and relations from biomedical text using a schema"
 
 setup(
-    name="schemalink",
+    name="schemalink-engine",
     version="1.0.0",
     author="Ali Rastegar",
     author_email="4lirastegar4li@gmail.com",
@@ -52,11 +52,11 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "schemalink=schemalink.cli:main",
+            "schemalink=schemalink_engine.cli:main",
         ],
     },
     include_package_data=True,
     package_data={
-        "schemalink": ["*.yaml", "*.json", "*.txt"],
+        "schemalink_engine": ["*.yaml", "*.json", "*.txt"],
     },
 )

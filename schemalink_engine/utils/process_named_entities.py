@@ -3,7 +3,7 @@ import time
 from openai import OpenAI
 import re
 import os
-from schemalink.api_key_manager import APIKeyManager
+from schemalink_engine.api_key_manager import APIKeyManager
 
 # Initialize OpenAI client lazily
 client = None
@@ -313,7 +313,7 @@ def process_named_entity_classes(
                   # Grounding is automatic whenever the class has annotators — no flag needed.
                   annotator_value = _merged_ann.get("annotators", "")
                   if annotator_value:
-                      from schemalink.utils.grounding import GroundingManager
+                      from schemalink_engine.utils.grounding import GroundingManager
                       threshold = ground_entities.get('threshold', 1.0) if isinstance(ground_entities, dict) else 1.0
                       mode = ground_entities.get('mode', 'auto') if isinstance(ground_entities, dict) else 'auto'
                       grounding_manager = GroundingManager(threshold=threshold, mode=mode)

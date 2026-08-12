@@ -1,24 +1,24 @@
-# SchemaLink
+# SchemaLink IE Engine
 
 **Schema-guided information extraction from biomedical text using Large Language Models.**
 
-SchemaLink takes a [LinkML](https://linkml.io/) schema and a free-text passage as input and extracts structured entities and relations — grounded to biomedical ontologies — that conform to the schema.
+The SchemaLink IE engine takes a schema developed with the SchemaLink webapp (SchemaLink.biodata.di.unimi.it) and a text as input to extract structured entities and relations — grounded to biomedical ontologies — that conform to the schema.
 
 ---
 
 ## Overview
 
-Biomedical knowledge graphs require structured data extracted from unstructured literature. Existing LLM-based extractors rely on flat, one-shot prompts and ignore the structure of the target schema. SchemaLink addresses this with a **dependency-aware multi-step pipeline** that:
+The SchemaLink IE engine implements a **dependency-aware multi-step pipeline** that:
 
-1. Parses the LinkML schema and builds a class-dependency DAG
+1. Parses the schema and builds a class-dependency DAG
 2. Runs topologically-sorted GPT calls — each step conditioned on the results of its dependencies
 3. Applies algorithmic post-processing rules (deduplication, cardinality, inheritance resolution)
 4. Grounds extracted entities to biomedical ontologies via [OAK](https://incatools.github.io/ontology-access-kit/) (exact, partial, fuzzy, or Monarch KG matching)
 
 ```
-LinkML Schema ──┐
-                ├──▶  SchemaLink Engine  ──▶  Grounded Knowledge Graph
-Biomedical Text ┘         (LLM + DAG)              (JSON / LinkML)
+   Schema     ──┐
+                ├──▶  SchemaLink Engine  ──▶  Entities and Triples
+Biomedical Text ┘         (LLM + DAG)           (JSON / LinkML)
 ```
 
 ---
@@ -26,13 +26,13 @@ Biomedical Text ┘         (LLM + DAG)              (JSON / LinkML)
 ## Installation
 
 ```bash
-pip install schemalink
+pip install schemalink-engine
 ```
 
 Or from source:
 
 ```bash
-git clone https://github.com/4lirastegar/schemalink-engine.git
+git clone https://github.com/BioDataUniMI/schemalink-engine.git
 cd schemalink-engine
 pip install -e .
 ```
@@ -47,7 +47,7 @@ schemalink api-key set sk-your-key-here
 
 ## Quick Start
 
-Given a schema file (`schema.yaml`) and a text file (`text.txt`):
+Given a RDF-like schema (see SchemaLink.biodata.di.unimi.it) file (`schema.yaml`) and a text file (`text.txt`):
 
 ```bash
 # Basic extraction
@@ -129,7 +129,7 @@ classes:
 ## Python API
 
 ```python
-from schemalink.pipeline import run_extraction_pipeline
+from schemalink_engine.pipeline import run_extraction_pipeline
 
 run_extraction_pipeline(
     schema_path="schema.yaml",
@@ -158,7 +158,7 @@ OAK databases are downloaded automatically on first use from the [bbop-sqlite](h
 
 ## Web Interface
 
-SchemaLink ships with a Flask production server that exposes a REST API and a streaming SSE endpoint:
+The SchemaLink IE engine ships with a Flask production server that exposes a REST API and a streaming SSE endpoint:
 
 ```bash
 python production_server.py
@@ -166,7 +166,7 @@ python production_server.py
 # → http://localhost:15002/engine/api/v1/extract  (sync)
 ```
 
-A full web application (React + FastAPI) is available at [SchemaLink Web](https://schemalink.anacleto.di.unimi.it).
+The full web application is available at [SchemaLink](https://SchemaLink.biodata.di.unimi.it).
 
 ---
 
@@ -203,7 +203,7 @@ schemalink models              List available models
 ## Architecture
 
 ```
-schemalink/
+schemalink_engine/
 ├── cli.py                  # CLI entry point
 ├── pipeline.py             # Main extraction pipeline
 ├── schema_convertor.py     # LinkML YAML → JSON schema parser
@@ -242,18 +242,15 @@ MIT License — see [LICENSE](LICENSE) for details.
 If you use SchemaLink in your research, please cite:
 
 ```bibtex
-@software{rastegar2025schemalink,
-  author       = {Rastegar, Ali},
-  title        = {{SchemaLink}: Schema-Guided Information Extraction from Biomedical Text},
-  year         = {2025},
-  publisher    = {GitHub},
-  url          = {https://github.com/4lirastegar/schemalink-engine},
-  institution  = {Università degli Studi di Milano, AnacletoLAB}
+@inproceedings{schemalinkIEengine2026,
+author={Emanuele Cavalleri, Ali Rastegar Mojarad, J. Harry Caufield, Justin T. Reese, Christopher J. Mungall, and Marco Mesiti},
+title = "{Schema-Driven Structured Information Extraction from Biomedical Literature via Large Language Models}", 
+year = {2026},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+booktitle = {Proceedings of the 35th ACM International Conference on Information and Knowledge Management},
+location = {Rome, Italy},
+series = {CIKM '26},
+notes = {To appear.}
 }
 ```
-
----
-
-## Acknowledgements
-
-Developed at [AnacletoLAB](https://anacletolab.di.unimi.it/), Università degli Studi di Milano, as part of a Master's thesis in Computer Science.

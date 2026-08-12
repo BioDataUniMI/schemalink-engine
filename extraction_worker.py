@@ -45,8 +45,8 @@ parser.add_argument('--ground-mode', default='exact')
 parser.add_argument('--model', default='gpt-4o-mini')
 args = parser.parse_args()
 
-from schemalink.api_key_manager import APIKeyManager
-from schemalink.pipeline import run_extraction_pipeline
+from schemalink_engine.api_key_manager import APIKeyManager
+from schemalink_engine.pipeline import run_extraction_pipeline
 
 # ── Step 3: switch back to isolated workdir for pipeline file I/O ────────────
 os.chdir(_workdir)

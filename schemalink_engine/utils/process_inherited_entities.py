@@ -2,7 +2,7 @@ import os
 import json
 import re
 from openai import OpenAI
-from schemalink.api_key_manager import APIKeyManager
+from schemalink_engine.api_key_manager import APIKeyManager
 
 # Initialize OpenAI client lazily
 client = None
@@ -362,7 +362,7 @@ def process_inherited_entity_classes(
                     or parent_info.get("annotations", {}).get("annotators", "")
                 )
                 if _inh_dep_annotator:
-                    from schemalink.utils.grounding import GroundingManager
+                    from schemalink_engine.utils.grounding import GroundingManager
                     threshold = ground_entities.get('threshold', 1.0) if isinstance(ground_entities, dict) else 1.0
                     mode = ground_entities.get('mode', 'auto') if isinstance(ground_entities, dict) else 'auto'
                     grounding_manager = GroundingManager(threshold=threshold, mode=mode)
@@ -597,7 +597,7 @@ def process_inherited_entity_classes_without_dep(
                     or parent_info.get("annotations", {}).get("annotators", "")
                 )
                 if _wdep_annotator:
-                    from schemalink.utils.grounding import GroundingManager
+                    from schemalink_engine.utils.grounding import GroundingManager
                     threshold = ground_entities.get('threshold', 1.0) if isinstance(ground_entities, dict) else 1.0
                     mode = ground_entities.get('mode', 'auto') if isinstance(ground_entities, dict) else 'auto'
                     grounding_manager = GroundingManager(threshold=threshold, mode=mode)

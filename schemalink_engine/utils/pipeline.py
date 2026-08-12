@@ -1,63 +1,32 @@
 # schemalink/pipeline.py
 
-from schemalink.schema_convertor import yaml_to_json
-from schemalink.utils.generate_dependencies import generate_dependencies
-from schemalink.utils.dag_generator import draw_dependency_graph
-from schemalink.utils.extract_named_entity_classes import extract_named_entity_classes
-from schemalink.utils.generate_named_entity_response_formats import generate_named_entity_response_formats
-from schemalink.utils.process_named_entities import process_named_entity_classes
-from schemalink.utils.handle_inherited_classes import (
+from schemalink_engine.schema_convertor import yaml_to_json
+from schemalink_engine.utils.generate_dependencies import generate_dependencies
+from schemalink_engine.utils.dag_generator import draw_dependency_graph
+from schemalink_engine.utils.extract_named_entity_classes import extract_named_entity_classes
+from schemalink_engine.utils.generate_named_entity_response_formats import generate_named_entity_response_formats
+from schemalink_engine.utils.process_named_entities import process_named_entity_classes
+from schemalink_engine.utils.handle_inherited_classes import (
     find_classes_with_one_dependency,
     check_parent_has_instances,
     remove_class_and_dependents
 )
-from schemalink.utils.generate_inherited_response_formats import generate_inherited_response_formats
-from schemalink.utils.process_inherited_entities import (process_inherited_entity_classes,process_inherited_entity_classes_without_dep)
-from schemalink.utils.handle_relationship_classes import find_classes_with_two_dependencies
-from schemalink.utils.generate_relationship_response_formats import generate_relationship_response_format
-from schemalink.utils.process_relationship_entities import (
+from schemalink_engine.utils.generate_inherited_response_formats import generate_inherited_response_formats
+from schemalink_engine.utils.process_inherited_entities import (process_inherited_entity_classes,process_inherited_entity_classes_without_dep)
+from schemalink_engine.utils.handle_relationship_classes import find_classes_with_two_dependencies
+from schemalink_engine.utils.generate_relationship_response_formats import generate_relationship_response_format
+from schemalink_engine.utils.process_relationship_entities import (
     call_gpt_for_relationship_extraction,
     call_gpt_for_relationship_extraction_without_dependencies
 )
-from schemalink.utils.some_helper import topological_sort, apply_rename_merges
+from schemalink_engine.utils.some_helper import topological_sort, apply_rename_merges
 
 
 import json
 import os
 import time as _time
 
-def _ensure_working_dirs():
-    """Create the required runtime directories if they don't exist.
-    These are created in the current working directory so the package
-    works correctly regardless of where the user runs it from.
-    """
-    dirs = [
-        "generated/graphs",
-        "generated/prompts",
-        "generated/response_formats",
-        "output",
-    ]
-    for d in dirs:
-        os.makedirs(d, exist_ok=True)
-    # Ensure the expected empty JSON files exist so downstream readers don't crash
-    empty_files = [
-        "generated/prompts/final_namedentity_prompts.json",
-        "generated/prompts/inherited_class_prompts.json",
-        "generated/prompts/relationship_classes_prompts.json",
-        "generated/response_formats/inherited_response_formats.json",
-        "generated/response_formats/named_entity_response_formats.json",
-        "generated/response_formats/relationship_response_formats.json",
-        "output/generated_responses.json",
-        "output/generated_responses_without_dependencies.json",
-    ]
-    for fp in empty_files:
-        if not os.path.exists(fp):
-            with open(fp, "w") as f:
-                f.write("")
-
-
 def run_extraction_pipeline(schema_path, text_path, with_dependencies=True, add_guidelines=False, selected_classes=None,show_prompts=False,show_results=False,generate_prompts_only=False,json_schema=False, ground_entities=None):
-    _ensure_working_dirs()
     # Emit META trace so the frontend knows model, text length, and pipeline start time
     try:
         _meta_text_len = 0
@@ -66,7 +35,7 @@ def run_extraction_pipeline(schema_path, text_path, with_dependencies=True, add_
                 _meta_text_len = len(_f.read())
         # Try to get current GPT model
         try:
-            from schemalink.api_key_manager import APIKeyManager as _AKM
+            from schemalink_engine.api_key_manager import APIKeyManager as _AKM
             _meta_model = os.environ.get('SCHEMALINK_MODEL', 'gpt-4o-mini')
         except Exception:
             _meta_model = 'gpt-4o-mini'

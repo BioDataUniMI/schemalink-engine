@@ -2,8 +2,8 @@ import json
 import time
 from difflib import SequenceMatcher
 from openai import OpenAI
-from schemalink.api_key_manager import APIKeyManager
-from schemalink.utils.some_helper import get_class_info_for_prompt
+from schemalink_engine.api_key_manager import APIKeyManager
+from schemalink_engine.utils.some_helper import get_class_info_for_prompt
 
 # Initialize OpenAI client lazily
 client = None
@@ -217,7 +217,7 @@ def _ground_entities_in_relations(response_payload, class_name, subject_class, o
         return response_payload
     
     # Initialize GroundingManager
-    from schemalink.utils.grounding import GroundingManager
+    from schemalink_engine.utils.grounding import GroundingManager
     threshold = ground_entities_config.get('threshold', 1.0) if isinstance(ground_entities_config, dict) else 1.0
     mode = ground_entities_config.get('mode', 'exact') if isinstance(ground_entities_config, dict) else 'exact'
     grounding_manager = GroundingManager(threshold=threshold, mode=mode)
