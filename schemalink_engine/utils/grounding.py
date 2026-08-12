@@ -11,6 +11,173 @@ from typing import Optional
 # Suppress OAK's noisy warnings about invalid CURIEs
 logging.getLogger("root").setLevel(logging.ERROR)
 
+# ---------------------------------------------------------------------------
+# OAK database setup helpers
+# ---------------------------------------------------------------------------
+
+_OAK_S3_BASE = 'https://s3.amazonaws.com/bbop-sqlite'
+
+# Ontologies known to be unavailable on the bbop-sqlite S3 bucket.
+_OAK_S3_UNAVAILABLE = {
+    'addicto', 'aeo', 'afo', 'afpo', 'bcgo', 'bmont', 'cao', 'ccf', 'ceph',
+    'coho', 'covoc', 'dc', 'dcat', 'dcterms', 'ehdaa2', 'emap', 'enm',
+    'ensemblglossary', 'evorao', 'exmo', 'gallont', 'gaz', 'gexo', 'gmho',
+    'gold', 'gscmixs', 'hra', 'ictv', 'idocovid19', 'idomal',
+    'lifestylefactors', 'lipidmaps', 'mcro', 'medgen', 'miro', 'ngbo',
+    'nmrcv', 'oio', 'om', 'omiabis', 'orth', 'owl', 'pbpko', 'phi',
+    'prefer', 'probonto', 'rdfs', 'reproduceme', 'reto', 'rexo',
+    'schemaorg_http', 'schemaorg_https', 'semapv', 'shareloc', 'sibo',
+    'skos', 'slm', 'slso', 'snomed', 'srao', 't4fs', 'tads', 'tao',
+    'teddy', 'tgma', 'unimod', 'uniprotrdfs', 'vario', 'vsao',
+}
+
+# Approximate compressed download sizes (MB) — used to warn before large downloads.
+_ONTOLOGY_DOWNLOAD_SIZE_MB = {
+    'chebi':      620,
+    'ncbitaxon':  210,
+    'pr':         110,
+    'go':          55,
+    'mondo':       42,
+    'mesh':        28,
+    'hp':          14,
+    'hgnc':         9,
+    'doid':         5,
+    'cl':           4,
+    'uberon':      18,
+    'ncit':        50,
+}
+
+
+def _extract_oak_annotators_from_schema_file(schema_path: str) -> list[str]:
+    """Parse a LinkML schema YAML file and return all unique sqlite:obo: ontology names."""
+    try:
+        import yaml as _yaml
+        with open(schema_path, 'r', encoding='utf-8') as f:
+            schema = _yaml.safe_load(f)
+    except Exception:
+        return []
+
+    names: set[str] = set()
+    for cls_info in (schema.get('classes') or {}).values():
+        if not isinstance(cls_info, dict):
+            continue
+        annotators_raw = (cls_info.get('annotations') or {}).get('annotators', '')
+        if not isinstance(annotators_raw, str):
+            continue
+        for part in annotators_raw.split(','):
+            part = part.strip()
+            if part.startswith('sqlite:obo:'):
+                names.add(part[len('sqlite:obo:'):].lower())
+    return sorted(names)
+
+
+def ensure_oak_databases(schema_path: str) -> None:
+    """Check that all OAK SQLite databases required by the schema are present.
+
+    Downloads any missing databases from the bbop-sqlite S3 bucket with a
+    tqdm progress bar. Already-cached databases are skipped silently.
+    """
+    import gzip
+    import shutil
+    import requests
+    from tqdm import tqdm
+
+    oak_dir = os.path.join(os.path.expanduser('~'), '.data', 'oaklib')
+    if os.environ.get('OAK_DATA_DIR'):
+        oak_dir = os.environ['OAK_DATA_DIR']
+    os.makedirs(oak_dir, exist_ok=True)
+
+    needed = _extract_oak_annotators_from_schema_file(schema_path)
+    if not needed:
+        return
+
+    missing = [
+        name for name in needed
+        if not os.path.exists(os.path.join(oak_dir, f'{name}.db'))
+        and name not in _OAK_S3_UNAVAILABLE
+    ]
+
+    if not missing:
+        return
+
+    print()
+    print('  📦 Ontology databases needed for grounding:')
+    for name in needed:
+        db_path = os.path.join(oak_dir, f'{name}.db')
+        if os.path.exists(db_path):
+            size_mb = os.path.getsize(db_path) / (1024 * 1024)
+            print(f'     ✅  {name}.db  ({size_mb:.0f} MB, already cached)')
+        elif name in _OAK_S3_UNAVAILABLE:
+            print(f'     ⚠️  {name}.db  — not available for download, grounding will be skipped')
+        else:
+            hint = _ONTOLOGY_DOWNLOAD_SIZE_MB.get(name)
+            size_str = f'~{hint} MB compressed' if hint else 'size unknown'
+            print(f'     ⬇️  {name}.db  ({size_str}) — will be downloaded now')
+    print()
+
+    for name in missing:
+        gz_url = f'{_OAK_S3_BASE}/{name}.db.gz'
+        db_path = os.path.join(oak_dir, f'{name}.db')
+        gz_path = db_path + '.gz'
+
+        try:
+            response = requests.get(gz_url, stream=True, timeout=120)
+            response.raise_for_status()
+            total_bytes = int(response.headers.get('content-length', 0))
+
+            # Download the .gz file with a progress bar
+            with tqdm(
+                total=total_bytes if total_bytes else None,
+                unit='B',
+                unit_scale=True,
+                unit_divisor=1024,
+                desc=f'  Downloading {name}.db',
+                bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]',
+                leave=True,
+            ) as bar:
+                with open(gz_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=65536):
+                        if chunk:
+                            f.write(chunk)
+                            bar.update(len(chunk))
+
+            # Decompress in place
+            print(f'  🔧 Decompressing {name}.db …', end=' ', flush=True)
+            with gzip.open(gz_path, 'rb') as f_in, open(db_path, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+            os.remove(gz_path)
+            size_mb = os.path.getsize(db_path) / (1024 * 1024)
+            print(f'done ({size_mb:.0f} MB)')
+
+        except requests.exceptions.ConnectionError:
+            _cleanup_partial(gz_path, db_path)
+            print(f'\n  ⚠️  No internet connection — could not download {name}.db.')
+            print(f'      Grounding for "{name}" will be skipped this run.')
+        except requests.exceptions.Timeout:
+            _cleanup_partial(gz_path, db_path)
+            print(f'\n  ⚠️  Download timed out for {name}.db.')
+            print(f'      Grounding for "{name}" will be skipped this run.')
+        except requests.exceptions.HTTPError as e:
+            _cleanup_partial(gz_path, db_path)
+            print(f'\n  ⚠️  HTTP error downloading {name}.db: {e}')
+            print(f'      Grounding for "{name}" will be skipped this run.')
+        except Exception as e:
+            _cleanup_partial(gz_path, db_path)
+            print(f'\n  ⚠️  Failed to download {name}.db: {e}')
+            print(f'      Grounding for "{name}" will be skipped this run.')
+
+    print()
+
+
+def _cleanup_partial(*paths: str) -> None:
+    """Remove partial download files silently."""
+    for p in paths:
+        try:
+            if os.path.exists(p):
+                os.remove(p)
+        except OSError:
+            pass
+
 try:
     from oaklib import get_adapter
     from oaklib.datamodels.text_annotator import TextAnnotationConfiguration

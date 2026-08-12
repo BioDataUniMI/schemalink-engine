@@ -244,6 +244,11 @@ def main():
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             print()
 
+        # Pre-download any missing OAK databases before starting extraction
+        if ground_config:
+            from schemalink_engine.utils.grounding import ensure_oak_databases
+            ensure_oak_databases(args.schema_path)
+
         start = time.time()
         try:
             run_extraction_pipeline(
