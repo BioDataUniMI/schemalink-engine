@@ -15,7 +15,7 @@ else:
 
 setup(
     name="schemalink-engine",
-    version="1.0.0",
+    version="0.1.0",
     author="Ali Rastegar",
     author_email="4lirastegar4li@gmail.com",
     description="A CLI tool for extracting structured entities and relations from biomedical text using a schema",
