@@ -3,6 +3,7 @@ import json
 import re
 from openai import OpenAI
 from schemalink_engine.api_key_manager import APIKeyManager
+from schemalink_engine.utils import cli_progress
 
 # Initialize OpenAI client lazily
 client = None
@@ -81,8 +82,6 @@ def process_inherited_entity_classes(
     schema, responses_file, text, response_formats_path,
     output_responses_path, prompts_save_path, single_dependency_classes, generate_prompts_only=False, ground_entities=False, add_guidelines=False
 ):
-    # print("\n🚀 Processing inherited entity classes...\n")
-    print(generate_prompts_only)
     os.makedirs(os.path.dirname(prompts_save_path), exist_ok=True)
 
     with open(responses_file) as rf, open(response_formats_path) as frf:
@@ -110,7 +109,6 @@ def process_inherited_entity_classes(
     # Static prompt generation: use exact same logic as runtime, but with placeholders
     if generate_prompts_only:
         print("🔧 Static prompt mode enabled: using placeholders in prompts.")
-        print(single_dependency_classes)
         for child_class, parent_class in single_dependency_classes.items():
             print(f"\n📝 Generating static prompt for {child_class} (inherits from {parent_class})")
 
@@ -206,7 +204,6 @@ def process_inherited_entity_classes(
         return
 
     else:
-      print(single_dependency_classes)
       for child_class, parent_class in single_dependency_classes.items():
         print(f"\n🔹 Processing {child_class} (inherits from {parent_class})")
 
@@ -376,6 +373,13 @@ def process_inherited_entity_classes(
                     print(f"TRACE:NE_GROUNDED:{child_class}:{json.dumps(extracted_labels)}")
                     if _removed_ground_inh:
                         print(f"TRACE:NE_GROUNDING_REMOVED:{child_class}:{json.dumps(_removed_ground_inh)}")
+
+                cli_progress.named_entity(
+                    child_class,
+                    _pre_ground_inh if _inh_dep_annotator else extracted_labels,
+                    extracted_labels if _inh_dep_annotator else None,
+                    did_ground=bool(_inh_dep_annotator),
+                )
 
                 schema_response_json["mentions"] = extracted_labels
                 combined_responses[child_class] = {"schemaResponse": schema_response_json}
@@ -611,6 +615,13 @@ def process_inherited_entity_classes_without_dep(
                     print(f"TRACE:NE_GROUNDED:{_wdep_trace_key}:{json.dumps(extracted_labels)}")
                     if _removed_ground_wdep:
                         print(f"TRACE:NE_GROUNDING_REMOVED:{_wdep_trace_key}:{json.dumps(_removed_ground_wdep)}")
+
+                cli_progress.named_entity(
+                    child_class,
+                    _pre_ground_wdep if _wdep_annotator else extracted_labels,
+                    extracted_labels if _wdep_annotator else None,
+                    did_ground=bool(_wdep_annotator),
+                )
 
                 schema_response_json["mentions"] = extracted_labels
                 combined_responses[child_class] = {"schemaResponse": schema_response_json}

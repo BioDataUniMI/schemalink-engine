@@ -185,8 +185,10 @@ try:
     # Suppress OAK library warnings
     logging.getLogger("oaklib").setLevel(logging.ERROR)
     OAK_AVAILABLE = True
-except Exception:
+except Exception as e:
     OAK_AVAILABLE = False
+    if os.environ.get("SCHEMALINK_CLI") != "1":
+        print(f"⚠️  OAK library could not be loaded ({e}). Using local SQLite .db files instead.")
 
 # Direct SQLite grounding — used when OAK is unavailable but .db files exist.
 # Queries rdfs_label_statement in OAK-format SQLite databases using built-in sqlite3.
@@ -220,47 +222,73 @@ def _get_sqlite_conn(ontology_name: str):
     _SQLITE_DB_CACHE[ontology_name] = None
     return None
 
+def _entity_name_variants(entity_name: str) -> list:
+    """Return mention variants so 'Parkinson's disease' also matches 'Parkinson disease'."""
+    variants = [entity_name]
+    cleaned = entity_name.replace("\u2019", "'").replace("\u2018", "'")
+    if cleaned != entity_name:
+        variants.append(cleaned)
+    if "'" in cleaned:
+        variants.append(cleaned.replace("'s ", " ").replace("'s", "s").replace("'", ""))
+    seen = set()
+    out = []
+    for v in variants:
+        key = v.lower().strip()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(v)
+    return out
+
+
 def _ground_with_sqlite(entity_name: str, ontology_name: str) -> Optional[str]:
     """
-    Query an OAK SQLite .db file for an exact whole-label match.
-    Returns the best matching subject ID (CURIE) or None.
-    Prefers exact case-insensitive label match; returns the most specific term
-    (non-root, shortest ID prefix hierarchy).
+    Query an OAK SQLite .db file the same way OAK does: labels + synonyms
+    in the `statements` table (rdfs:label, oio:hasExactSynonym, …).
     """
     conn = _get_sqlite_conn(ontology_name)
     if conn is None:
         return None
+    _ROOT_IDS = {"MONDO:0000001", "GO:0003674", "GO:0008150", "GO:0005575",
+                 "HP:0000001", "CHEBI:24431"}
+    _PRED_RANK = {
+        "rdfs:label": 0,
+        "oio:hasExactSynonym": 1,
+        "oio:hasRelatedSynonym": 2,
+        "oio:hasNarrowSynonym": 3,
+        "oio:hasBroadSynonym": 4,
+    }
     try:
-        cur = conn.execute(
-            "SELECT subject, value FROM rdfs_label_statement WHERE lower(value) = lower(?)",
-            (entity_name,),
-        )
-        rows = cur.fetchall()
-        if not rows:
-            # Also try has_exact_synonym_statement
+        rows = []
+        for variant in _entity_name_variants(entity_name):
             try:
-                cur2 = conn.execute(
-                    "SELECT stanza, value FROM has_oio_synonym_statement WHERE lower(value) = lower(?)",
-                    (entity_name,),
+                cur = conn.execute(
+                    """
+                    SELECT subject, predicate, value FROM statements
+                    WHERE lower(value) = lower(?)
+                      AND predicate IN (
+                          'rdfs:label',
+                          'oio:hasExactSynonym',
+                          'oio:hasRelatedSynonym',
+                          'oio:hasNarrowSynonym',
+                          'oio:hasBroadSynonym'
+                      )
+                      AND subject NOT LIKE '_:%'
+                    """,
+                    (variant,),
                 )
-                rows2 = cur2.fetchall()
-                rows = [(r[0], r[1]) for r in rows2]
+                rows = cur.fetchall()
             except Exception:
-                pass
+                rows = []
+            if rows:
+                break
         if not rows:
             return None
-        # Filter out root/generic terms and obsolete terms (by label or known ID)
-        _ROOT_IDS = {"MONDO:0000001", "GO:0003674", "GO:0008150", "GO:0005575",
-                     "HP:0000001", "CHEBI:24431"}
         rows = [r for r in rows
-                if r[0] not in _ROOT_IDS and "obsolete" not in r[1].lower()]
+                if r[0] not in _ROOT_IDS and "obsolete" not in (r[2] or "").lower()]
         if not rows:
             return None
-        # Sort: exact label match (case-sensitive) first, then by ID string
-        entity_lower = entity_name.lower()
-        rows.sort(key=lambda r: (0 if r[1].lower() == entity_lower else 1, r[0]))
+        rows.sort(key=lambda r: (_PRED_RANK.get(r[1], 9), r[0]))
         raw_id = rows[0][0]
-        # Normalize prefix casing: hgnc:12345 → HGNC:12345, pr:000... → PR:000...
         if ":" in raw_id:
             prefix, local = raw_id.split(":", 1)
             raw_id = f"{prefix.upper()}:{local}"
@@ -444,7 +472,7 @@ class GroundingManager:
         
         try:
             if not os.path.exists(lookup_file):
-                print(f"⚠️ Warning: Lookup table not found: {lookup_file}")
+                pass
                 self.lookup_tables[table_name] = {}
                 return {}
             
@@ -776,9 +804,8 @@ class GroundingManager:
                     used_oak = True
                     break
 
-            # If OAK library is unavailable but mode is 'monarch', try direct SQLite queries
-            # against the OAK-format .db files — same data, no OAK library needed.
-            if not entity_id and self.mode in ('monarch', 'auto') and not OAK_AVAILABLE:
+            # Same local .db files OAK uses. Run when OAK is missing *or* did not match.
+            if not entity_id and self.mode in ('monarch', 'auto'):
                 for annotator in oak_annotators:
                     if not annotator.startswith("sqlite:obo:"):
                         continue
@@ -833,14 +860,15 @@ class GroundingManager:
             else:
                 removed_count += 1
         
-        if removed_count > 0:
+        if removed_count > 0 and os.environ.get("SCHEMALINK_CLI") != "1":
             print(f"  ⚠️ Removed {removed_count} ungrounded entities")
         
         # Print summary
         # Check if any OAK adapters actually worked
         oak_worked = any(self.oak_adapters.get(a) is not None for a in oak_annotators if a not in oak_failed_annotators)
-        sqlite_direct_used = (not OAK_AVAILABLE and self.mode in ('monarch', 'auto')
-                              and any(a.startswith("sqlite:obo:") for a in oak_annotators))
+        sqlite_direct_used = (self.mode in ('monarch', 'auto')
+                              and any(a.startswith("sqlite:obo:") for a in oak_annotators)
+                              and not oak_worked)
         if oak_annotators and oak_worked and not oak_failed_annotators:
             method_str = "OAK"
         elif sqlite_direct_used:
@@ -864,7 +892,8 @@ class GroundingManager:
                 annotator_names.append(table_name)
         
         annotators_str = ", ".join(annotator_names) if annotator_names else "unknown"
-        print(f"  ✅ Grounded {len(grounded_entities)} entities using {annotators_str} ({method_str})")
+        if os.environ.get("SCHEMALINK_CLI") != "1":
+            print(f"  ✅ Grounded {len(grounded_entities)} entities using {annotators_str} ({method_str})")
         
         return grounded_entities
     

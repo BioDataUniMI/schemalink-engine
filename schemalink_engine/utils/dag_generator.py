@@ -1,7 +1,8 @@
 import json
+import os
+import warnings
 import networkx as nx
 import matplotlib.pyplot as plt
-import os
 
 def draw_dependency_graph(json_file, output_image="dependency_graph.png"):
     """
@@ -82,6 +83,8 @@ def draw_dependency_graph(json_file, output_image="dependency_graph.png"):
     )
 
     plt.title("Prompt Dependency Graph", fontsize=16)
-    plt.tight_layout()
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*tight_layout.*")
+        plt.tight_layout()
     plt.savefig(output_image, dpi=300, bbox_inches='tight')
     # plt.show()

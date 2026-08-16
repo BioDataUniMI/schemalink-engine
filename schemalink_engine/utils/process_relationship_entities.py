@@ -4,6 +4,7 @@ from difflib import SequenceMatcher
 from openai import OpenAI
 from schemalink_engine.api_key_manager import APIKeyManager
 from schemalink_engine.utils.some_helper import get_class_info_for_prompt
+from schemalink_engine.utils import cli_progress
 
 # Initialize OpenAI client lazily
 client = None
@@ -365,7 +366,7 @@ def call_gpt_for_relationship_extraction(
     response_formats_path, text_sample_path, prompts_save_path, 
     two_dependency_classes, schema_path, generated_responses_path, generate_prompts_only=False, add_guidelines=False
 ):
-    print(two_dependency_classes)
+    pass
 
     # Load required data
     with open(response_formats_path, "r") as schema_file:
@@ -547,6 +548,7 @@ def call_gpt_for_relationship_extraction(
             combined_responses[class_name] = response_payload
             _final_relations = response_payload.get(_list_key, [])
             print(f"TRACE:RE_FINAL:{class_name}:{json.dumps(_final_relations)}")
+            cli_progress.relation(class_name, _final_relations)
         except Exception as e:
             print(f"❌ Error processing {class_name}: {e}")
         finally:

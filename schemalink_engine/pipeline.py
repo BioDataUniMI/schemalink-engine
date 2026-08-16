@@ -67,9 +67,9 @@ def run_extraction_pipeline(schema_path, text_path, with_dependencies=True, add_
         # Try to get current GPT model
         try:
             from schemalink_engine.api_key_manager import APIKeyManager as _AKM
-            _meta_model = os.environ.get('SCHEMALINK_MODEL', 'gpt-4o-mini')
+            _meta_model = os.environ.get('SCHEMALINK_MODEL') or _AKM().get_gpt_model()
         except Exception:
-            _meta_model = 'gpt-4o-mini'
+            _meta_model = os.environ.get('SCHEMALINK_MODEL', 'gpt-4o-mini')
         print(f"TRACE:META:pipeline:{json.dumps({'model': _meta_model, 'text_length': _meta_text_len, 'with_dependencies': with_dependencies, 'add_guidelines': add_guidelines, 'started_at': _time.time()})}")
     except Exception:
         pass
@@ -203,7 +203,8 @@ def run_extraction_pipeline(schema_path, text_path, with_dependencies=True, add_
       generated_responses_file = "output/generated_responses.json"
 
       single_dependency_classes = find_classes_with_one_dependency(class_dependencies_file)
-      print("Inherited Classes:", single_dependency_classes)
+      if single_dependency_classes:
+          print("Inherited Classes:", single_dependency_classes)
       
       with open(class_dependencies_file, "r") as file:
           class_dependencies = json.load(file)
@@ -412,7 +413,8 @@ def run_extraction_pipeline(schema_path, text_path, with_dependencies=True, add_
       class_dependencies_file = "generated/class_dependencies.json"
       
       single_dependency_classes = find_classes_with_one_dependency(class_dependencies_file)
-      print("Inherited Classes:", single_dependency_classes)
+      if single_dependency_classes:
+          print("Inherited Classes:", single_dependency_classes)
 
       # 6. Generate response formats for inherited classes
       generate_inherited_response_formats(

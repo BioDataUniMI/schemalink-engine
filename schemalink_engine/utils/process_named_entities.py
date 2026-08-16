@@ -4,6 +4,7 @@ from openai import OpenAI
 import re
 import os
 from schemalink_engine.api_key_manager import APIKeyManager
+from schemalink_engine.utils import cli_progress
 
 # Initialize OpenAI client lazily
 client = None
@@ -329,8 +330,12 @@ def process_named_entity_classes(
                       print(f"TRACE:NE_GROUNDED:{_trace_key}:{json.dumps(extracted_labels)}")
                       if _removed_by_grounding:
                           print(f"TRACE:NE_GROUNDING_REMOVED:{_trace_key}:{json.dumps(_removed_by_grounding)}")
-                  
-         
+                  cli_progress.named_entity(
+                      class_name,
+                      _pre_grounding if annotator_value else extracted_labels,
+                      extracted_labels if annotator_value else None,
+                      did_ground=bool(annotator_value),
+                  )
               except Exception as e:
                   print(f"❌ Error processing schema prompt for {class_name}: {e}")
               finally:

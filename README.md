@@ -55,7 +55,7 @@ schemalink api-key set sk-your-key-here
 Given a schema file (`schema.yaml`, built with [SchemaLink](https://SchemaLink.biodata.di.unimi.it)) and a text file (`text.txt`):
 
 ```bash
-# Standard extraction — dependency-aware by default
+# Standard extraction — dependency-aware by default; prints the JSON result
 schemalink extract schema.yaml text.txt
 
 # With ontology grounding (recommended when the schema defines annotators)
@@ -63,6 +63,9 @@ schemalink extract schema.yaml text.txt --ground
 
 # Flat extraction — all classes extracted independently, ignoring dependencies
 schemalink extract schema.yaml text.txt --flat
+
+# Hide the JSON result
+schemalink extract schema.yaml text.txt --quiet
 ```
 
 ### Example Schema (Drug–Disease)
@@ -138,7 +141,6 @@ run_extraction_pipeline(
     schema_path="schema.yaml",
     text_path="text.txt",
     with_dependencies=True,   # True by default
-    show_results=True,
 )
 
 # With ontology grounding
@@ -146,7 +148,6 @@ run_extraction_pipeline(
     schema_path="schema.yaml",
     text_path="text.txt",
     ground_entities={"mode": "auto"},
-    show_results=True,
 )
 ```
 
@@ -208,8 +209,9 @@ Options:
   --add_guidelines      Include schema-level guidelines in prompts
   --classes A B C       Extract only specific classes
   --model <name>        Override the GPT model for this run
+  --quiet               Do not print the extraction JSON (printed by default)
+  --verbose             Show TRACE lines and internal pipeline logs
   --show_prompts        Print the prompts sent to the LLM (API call still made)
-  --show_results        Print the extraction output to stdout
   --json_schema         Print the parsed JSON schema and exit
 
 schemalink api-key set <key>   Save your OpenAI API key

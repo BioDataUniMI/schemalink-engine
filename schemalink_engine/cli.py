@@ -1,8 +1,120 @@
 import argparse
+import json
 import os
 import sys
 import time
+import warnings
 from schemalink_engine.pipeline import run_extraction_pipeline
+
+
+# Internal pipeline noise hidden from the default CLI (webapp still sees TRACE).
+_HIDDEN_PREFIXES = (
+    "TRACE:",
+    "**Step",
+    "Inherited Classes:",
+    "⚠️ Warning: Lookup table not found",
+    "⚠️  OAK library could not be loaded",
+)
+_HIDDEN_EXACT = {"False", "True", "{}", "[]"}
+_HIDDEN_CONTAINS = (
+    "UserWarning:",
+    "plt.tight_layout()",
+    "Axes that are not compatible with tight_layout",
+    "DAG1:",
+    "DAG2:",
+    "DAG3:",
+    "Reordering classes",
+    "Reordered schema.json",
+    "Reordered class_dependencies.json",
+    "Named entity response formats",
+    "Inherited response formats",
+    "Response formats for inherited classes",
+    "Processing inherited entity classes",
+    "inherited prompts saved",
+    "Inherited entity processing",
+    "Rename merges",
+    "Relation classes with two dependencies",
+    "Generated response formats",
+    "Relationship response formats",
+    "Final DAG",
+    "Second dependency graph",
+    "Dependency graph successfully",
+    "Class dependencies successfully",
+    "Output File:",
+    "Prompts saved",
+    "Responses saved",
+    "NamedEntity classes:",
+    "✅ Grounded",
+    "✅ Loaded lookup table",
+    "ungrounded entities",
+)
+
+
+class _QuietStream:
+    """Drop TRACE lines and internal pipeline chatter from a stream."""
+
+    def __init__(self, stream):
+        self._stream = stream
+        self._buf = ""
+
+    def write(self, text):
+        if not isinstance(text, str):
+            text = str(text)
+        self._buf += text
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            if self._keep(line):
+                self._stream.write(line + "\n")
+
+    def flush(self):
+        if self._buf and self._keep(self._buf):
+            self._stream.write(self._buf)
+        self._buf = ""
+        self._stream.flush()
+
+    def _keep(self, line):
+        stripped = line.strip()
+        if stripped in _HIDDEN_EXACT:
+            return False
+        if stripped.startswith(_HIDDEN_PREFIXES):
+            return False
+        return not any(token in line for token in _HIDDEN_CONTAINS)
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def _result_output_path(with_dependencies):
+    candidates = (
+        ["output/generated_responses.json"]
+        if with_dependencies
+        else ["output/generated_responses_without_dependencies.json"]
+    )
+    candidates.append("output/generated_responses.json")
+    for path in candidates:
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            return path
+    return candidates[0]
+
+
+def _print_extraction_results(with_dependencies, include_json=True):
+    path = _result_output_path(with_dependencies)
+    print()
+    print(f"  Saved to: {os.path.abspath(path)}")
+    if not include_json or not os.path.exists(path) or os.path.getsize(path) == 0:
+        print()
+        return
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        print()
+        return
+    print()
+    print("  Results")
+    print("  -------")
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+    print()
 
 
 def cleanup_files():
@@ -147,8 +259,15 @@ def main():
         help="Print the LLM prompts alongside the extraction output (API is still called).",
     )
     extract_parser.add_argument(
-        "--show_results", action="store_true",
-        help="Print extraction output to stdout after the run.",
+        "--quiet", action="store_true",
+        help="Do not print the extraction JSON at the end of the run.",
+    )
+    extract_parser.add_argument(
+        "--verbose", action="store_true",
+        help="Show internal TRACE lines and pipeline debug output.",
+    )
+    extract_parser.add_argument(
+        "--show_results", action="store_true", help=argparse.SUPPRESS,
     )
     extract_parser.add_argument(
         "--json_schema", action="store_true",
@@ -227,8 +346,17 @@ def main():
 
         cleanup_files()
 
+        quiet_cli = args.command == "extract" and not getattr(args, "verbose", False)
+        if quiet_cli:
+            os.environ["SCHEMALINK_CLI"] = "1"
+            warnings.filterwarnings("ignore", message=".*tight_layout.*")
+            sys.stdout = _QuietStream(sys.stdout)
+            sys.stderr = _QuietStream(sys.stderr)
+
         if args.command == "extract":
             from schemalink_engine.api_key_manager import APIKeyManager
+            from schemalink_engine.utils.cli_progress import reset as reset_cli_progress
+            reset_cli_progress()
             current_model = APIKeyManager().get_gpt_model()
             print()
             print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -258,13 +386,17 @@ def main():
                 add_guidelines=args.add_guidelines,
                 selected_classes=args.classes,
                 show_prompts=args.show_prompts,
-                show_results=getattr(args, "show_results", False),
+                show_results=False,
                 generate_prompts_only=generate_only,
                 json_schema=args.json_schema,
                 ground_entities=ground_config,
             )
             elapsed = time.time() - start
             if args.command == "extract":
+                _print_extraction_results(
+                    with_dependencies,
+                    include_json=not getattr(args, "quiet", False),
+                )
                 print()
                 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 print(f"  ✓  Extraction completed in {elapsed:.1f}s")
