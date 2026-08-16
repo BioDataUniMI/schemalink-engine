@@ -15,13 +15,13 @@ else:
 
 setup(
     name="schemalink-engine",
-    version="0.1.0",
+    version="0.1.1",
     author="Ali Rastegar",
     author_email="4lirastegar4li@gmail.com",
     description="A CLI tool for extracting structured entities and relations from biomedical text using a schema",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/4lirastegar/schemalink",
+    url="https://github.com/BioDataUniMI/schemalink-engine",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",

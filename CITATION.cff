@@ -14,11 +14,11 @@ authors:
     email: 4lirastegar4li@gmail.com
     affiliation: "Università degli Studi di Milano, AnacletoLAB"
     orcid: ""
-version: "1.0.0"
-date-released: "2025-01-01"
+version: "0.1.1"
+date-released: "2026-08-16"
 license: MIT
 url: "https://schemalink.anacleto.di.unimi.it"
-repository-code: "https://github.com/4lirastegar/schemalink-engine"
+repository-code: "https://github.com/BioDataUniMI/schemalink-engine"
 keywords:
   - biomedical information extraction
   - knowledge graph
